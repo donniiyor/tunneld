@@ -1,36 +1,10 @@
-#include <arpa/inet.h>
-#include <fcntl.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>
 
-int copy_fd(int src, int dst) {
-    char buffer[1024];
-
-    while (1) {
-        ssize_t n = read(src, buffer, sizeof(buffer));
-
-        if (n == -1) {
-            perror("read");
-            return -1;
-        }
-
-        if (n == 0) return 0;
-
-        ssize_t total_written = 0;
-
-        while (total_written < n) {
-            ssize_t written = write(dst, buffer + total_written, n - total_written);
-
-            if (written <= 0) {
-                perror("write");
-                return -1;
-            }
-
-            total_written += written;
-        }
-    }
-}
+#include <netinet/in.h>
+#include <sys/event.h>
+#include <sys/socket.h>
 
 int main(void) {
     int server_fd = socket(AF_INET, SOCK_STREAM, 0);
@@ -47,7 +21,7 @@ int main(void) {
         return EXIT_FAILURE;
     }
 
-    if (listen(server_fd, 10) == -1) {
+    if (listen(server_fd, SOMAXCONN) == -1) {
         perror("listen");
         close(server_fd);
         return EXIT_FAILURE;
@@ -55,23 +29,53 @@ int main(void) {
 
     printf("Listening on port 8080...\n");
 
-    int client_fd = accept(server_fd, NULL, NULL);
-    if (client_fd == -1) {
-        perror("accept");
-        close(server_fd);
-        return EXIT_FAILURE;
-    }
+    int kq = kqueue();
 
-    printf("Client connected\n");
+    struct kevent change;
+    struct kevent events[32];
 
-    if (copy_fd(client_fd, STDOUT_FILENO) == -1) {
-        close(server_fd);
-        close(client_fd);
-        return EXIT_FAILURE;
+    EV_SET(&change, server_fd, EVFILT_READ, EV_ADD, 0, 0, NULL);
+    kevent(kq, &change, 1, NULL, 0, NULL);
+
+    while (1) {
+        int event_count = kevent(kq, NULL, 0, events, 32, NULL);
+        for (int i = 0; i < event_count; i++) {
+            struct kevent *event = &events[i];
+
+            // New client
+            if (event->ident == server_fd) {
+                int client_fd = accept(server_fd, NULL, NULL);
+
+                EV_SET(&change, client_fd, EVFILT_READ, EV_ADD, 0, 0, NULL);
+
+                kevent(kq, &change, 1, NULL, 0, NULL);
+
+                printf("Client connected: %d\n", client_fd);
+
+                continue;
+            }
+
+            // Existing client
+            int client_fd = (int)event->ident;
+
+            char buffer[1024];
+
+            ssize_t n = read(client_fd, buffer, sizeof(buffer));
+
+            if (n == 0) {
+                printf("Client disconnected: %d\n", client_fd);
+
+                close(client_fd);
+
+                continue;
+            }
+
+            write(client_fd, buffer, n);
+        }
     }
 
     close(server_fd);
-    close(client_fd);
+    close(kq);
 
     return EXIT_SUCCESS;
 }
