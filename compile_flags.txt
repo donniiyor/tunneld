@@ -1,0 +1,4 @@
+-Icommon
+-Iclient
+-Iserver
+-std=c11

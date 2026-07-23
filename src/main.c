@@ -69,7 +69,7 @@ int main(void) {
                 continue;
             }
 
-            write(client_fd, buffer, n);
+             write(client_fd, buffer, n);
         }
     }
 

@@ -12,8 +12,21 @@ struct connection;
 
 typedef void (*packet_handler_fn)(struct connection *conn, struct packet_header *header, uint8_t *payload);
 
+enum connection_state {
+    CONNECTION_OPENING,
+    CONNECTION_OPEN,
+    CONNECTION_CLOSING,
+    CONNECTION_CLOSED,
+};
+
 struct connection {
     int fd;
+
+    uint32_t connection_id;
+
+    enum connection_state state;
+
+    struct connection *peer;
 
     uint8_t read_buffer[BUFFER_SIZE];
     size_t read_length;

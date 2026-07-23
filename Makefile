@@ -2,15 +2,26 @@ CC := clang
 
 TARGET := tunneld
 
-SRC_DIR := src
-INC_DIR := include
-OBJ_DIR := build
+BUILD_DIR := build
 
-CFLAGS := -Wall -Wextra -Wpedantic -std=c11 -I$(INC_DIR)
+COMMON_DIR := common
+SERVER_DIR := server
+CLIENT_DIR := client
+INC_DIR := include
+
+CFLAGS := -Wall -Wextra -Wpedantic -std=c11
+CFLAGS += -Icommon
+CFLAGS += -Iserver
+CFLAGS += -Iclient
+
 LDFLAGS :=
 
-SRCS := $(wildcard $(SRC_DIR)/*.c)
-OBJS := $(patsubst $(SRC_DIR)/%.c,$(OBJ_DIR)/%.o,$(SRCS))
+SRCS := \
+	$(wildcard $(COMMON_DIR)/*.c) \
+	$(wildcard $(SERVER_DIR)/*.c) \
+	$(wildcard $(CLIENT_DIR)/*.c)
+
+OBJS := $(patsubst %.c,$(BUILD_DIR)/%.o,$(SRCS))
 
 .PHONY: all clean run
 
@@ -19,14 +30,15 @@ all: $(TARGET)
 $(TARGET): $(OBJS)
 	$(CC) $(OBJS) -o $@ $(LDFLAGS)
 
-$(OBJ_DIR):
-	mkdir -p $(OBJ_DIR)
+$(BUILD_DIR):
+	mkdir -p $(BUILD_DIR)
 
-$(OBJ_DIR)/%.o: $(SRC_DIR)/%.c | $(OBJ_DIR)
+$(BUILD_DIR)/%.o: %.c
+	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) -c $< -o $@
 
 run: $(TARGET)
 	./$(TARGET)
 
 clean:
-	rm -rf $(OBJ_DIR) $(TARGET)
+	rm -rf $(BUILD_DIR) $(TARGET)
