@@ -11,11 +11,11 @@ enum packet_type {
 };
 
 struct packet_header {
-    uint32_t type;
+    enum packet_type type;
     uint32_t connection_id;
     uint32_t length;
 };
 
-ssize_t send_packet(int fd, uint32_t type, uint32_t connection_id, const void *payload, uint32_t length);
+ssize_t send_packet(int fd, enum packet_type type, uint32_t connection_id, const void *payload, uint32_t length);
 
 #endif
