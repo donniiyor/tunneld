@@ -43,11 +43,10 @@ int main(void) {
             struct kevent *event = &events[i];
 
             // New client
-            if (event->ident == server_fd) {
+            if ((int)event->ident == server_fd) {
                 int client_fd = accept(server_fd, NULL, NULL);
 
                 EV_SET(&change, client_fd, EVFILT_READ, EV_ADD, 0, 0, NULL);
-
                 kevent(kq, &change, 1, NULL, 0, NULL);
 
                 printf("Client connected: %d\n", client_fd);
