@@ -1,13 +1,13 @@
 CC := clang
 
-TARGET := tunneld
+SERVER_TARGET := tunnels
+CLIENT_TARGET := tunnelc
 
 BUILD_DIR := build
 
 COMMON_DIR := common
 SERVER_DIR := server
 CLIENT_DIR := client
-INC_DIR := include
 
 CFLAGS := -Wall -Wextra -Wpedantic -std=c11
 CFLAGS += -Icommon
@@ -16,29 +16,36 @@ CFLAGS += -Iclient
 
 LDFLAGS :=
 
-SRCS := \
-	$(wildcard $(COMMON_DIR)/*.c) \
-	$(wildcard $(SERVER_DIR)/*.c) \
-	$(wildcard $(CLIENT_DIR)/*.c)
+COMMON_SRCS := $(wildcard $(COMMON_DIR)/*.c)
+SERVER_SRCS := $(COMMON_SRCS) $(wildcard $(SERVER_DIR)/*.c)
+CLIENT_SRCS := $(COMMON_SRCS) $(wildcard $(CLIENT_DIR)/*.c)
 
-OBJS := $(patsubst %.c,$(BUILD_DIR)/%.o,$(SRCS))
+SERVER_OBJS := $(patsubst %.c,$(BUILD_DIR)/server/%.o,$(SERVER_SRCS))
+CLIENT_OBJS := $(patsubst %.c,$(BUILD_DIR)/client/%.o,$(CLIENT_SRCS))
 
-.PHONY: all clean run
+.PHONY: all clean run-server run-client
 
-all: $(TARGET)
+all: $(SERVER_TARGET) $(CLIENT_TARGET)
 
-$(TARGET): $(OBJS)
-	$(CC) $(OBJS) -o $@ $(LDFLAGS)
+$(SERVER_TARGET): $(SERVER_OBJS)
+	$(CC) $(SERVER_OBJS) -o $@ $(LDFLAGS)
 
-$(BUILD_DIR):
-	mkdir -p $(BUILD_DIR)
+$(CLIENT_TARGET): $(CLIENT_OBJS)
+	$(CC) $(CLIENT_OBJS) -o $@ $(LDFLAGS)
 
-$(BUILD_DIR)/%.o: %.c
+$(BUILD_DIR)/server/%.o: %.c
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) -c $< -o $@
 
-run: $(TARGET)
-	./$(TARGET)
+$(BUILD_DIR)/client/%.o: %.c
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) -c $< -o $@
+
+run-server: $(SERVER_TARGET)
+	./$(SERVER_TARGET)
+
+run-client: $(CLIENT_TARGET)
+	./$(CLIENT_TARGET)
 
 clean:
-	rm -rf $(BUILD_DIR) $(TARGET)
+	rm -rf $(BUILD_DIR) $(SERVER_TARGET) $(CLIENT_TARGET)
