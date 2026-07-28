@@ -1,3 +1,5 @@
+#include "poll_fds.h"
+
 #include <netinet/in.h>
 #include <poll.h>
 #include <stdio.h>
@@ -18,65 +20,91 @@ int main(void) {
 
     struct sockaddr_in address = {.sin_family = PF_INET, .sin_addr.s_addr = INADDR_ANY, .sin_port = htons(PORT)};
     if (bind(socket_fd, (struct sockaddr *)&address, sizeof(address)) == -1) {
-        perror("Bind failed");
+        perror("Socket address bind failed");
         close(socket_fd);
         return EXIT_FAILURE;
     }
 
     if (listen(socket_fd, BACKLOG) == -1) {
-        perror("Listen failed");
+        perror("Socket listen failed");
         close(socket_fd);
         return EXIT_FAILURE;
     }
 
-    printf("Socket is listening on port %d...\n", PORT);
+    printf("Socket is wating for client connection on port %d...\n", PORT);
 
-    struct pollfd fds[2];
-    fds[0].fd = socket_fd;
-    fds[0].events = POLLIN;
-    fds[1].fd = -1;
+    struct poll_fds pfds = {.count = 0};
+    fds_add(&pfds, socket_fd, POLLIN);
+
+    int client_fd = accept(pfds.fds[0].fd, NULL, NULL);
+    if (client_fd == -1) {
+        perror("Failed on client socket accept");
+        return EXIT_FAILURE;
+    }
+
+    printf("Client is connected: %d\n", client_fd);
+    fds_add(&pfds, client_fd, POLLIN);
 
     while (1) {
-        int ready = poll(fds, sizeof(fds) / sizeof(fds[0]), -1);
-
+        int ready = poll(pfds.fds, pfds.count, -1);
         if (ready == -1) {
             perror("poll");
-            break;
+            return EXIT_FAILURE;
         }
 
-        if (fds[0].revents & POLLIN) {
-            struct sockaddr_in client_address;
-            socklen_t client_address_len = sizeof(client_address);
-
-            int client_fd = accept(socket_fd, (struct sockaddr *)&client_address, &client_address_len);
+        // Check for user connections on socket_fd
+        if (pfds.fds[0].revents & POLLIN) {
+            int user_fd = accept(pfds.fds[0].fd, NULL, NULL);
             if (client_fd == -1) {
-                perror("accept");
+                perror("Failed on user socket accept");
                 continue;
             }
 
-            printf("Client connected\n");
-
-            fds[1].fd = client_fd;
-            fds[1].events = POLLIN;
+            fds_add(&pfds, user_fd, POLLIN);
+            printf("Accepted user socket: %d\n", user_fd);
 
             continue;
         }
 
-        if (fds[1].fd != -1 && (fds[1].revents & POLLIN)) {
+        // Reading data flow from client socket
+        if (pfds.fds[1].revents & POLLIN) {
             char buffer[1024];
-            ssize_t n = recv(fds[1].fd, buffer, sizeof(buffer) - 1, 0);
 
+            ssize_t n = read(pfds.fds[1].fd, buffer, sizeof(buffer));
             if (n <= 0) {
-                close(fds[1].fd);
-                fds[1].fd = -1;
+                perror("Reading from client_fd");
 
-                printf("Closed connection with client\n");
-            } else {
-                printf("Received: %s\n", buffer);
-                memset(buffer, 0, sizeof(buffer));
+                fds_del(&pfds, pfds.fds[1].fd);
+                close(pfds.fds[1].fd);
+
+                return EXIT_FAILURE;
             }
 
-            continue;
+            // Broadcasting data flow to all user sockets
+            for (size_t i = 2; i < pfds.count; i++) {
+                write(pfds.fds[i].fd, buffer, n);
+            }
+        }
+
+        // Reading from user_fd and writing to client_fd
+        for (size_t i = 2; i < pfds.count; i++) {
+            if (pfds.fds[i].revents & POLLIN) {
+                char buffer[1024];
+
+                ssize_t n = read(pfds.fds[i].fd, buffer, sizeof(buffer));
+                if (n <= 0) {
+                    perror("Reading from user sockets");
+
+                    fds_del(&pfds, pfds.fds[i].fd);
+                    close(pfds.fds[i].fd);
+
+                    printf("Closed user socket connection: %d\n", pfds.fds[i].fd);
+                    continue;
+                }
+
+                // Write data flow to client socket
+                write(pfds.fds[1].fd, buffer, n);
+            }
         }
     }
 
