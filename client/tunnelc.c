@@ -1,16 +1,28 @@
-#include "poll_fds.h"
+#include "connection.h"
+#include "hashtable.h"
+#include "protocol.h"
+#include "vector.h"
 
 #include <arpa/inet.h>
 #include <netinet/in.h>
 #include <poll.h>
+#include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/socket.h>
 #include <unistd.h>
 
+#define BACKLOG 8
 #define SERVER_PORT 8080
 #define SERVER_ADDRESS "127.0.0.1"
+
+bool pollfd_cmp(const void *a, const void *b) {
+    const struct pollfd *pa = a;
+    const struct pollfd *pb = b;
+
+    return pa->fd == pb->fd;
+}
 
 int main(int argc, char *argv[]) {
     // Establish connection with server
@@ -33,70 +45,123 @@ int main(int argc, char *argv[]) {
 
     printf("Connection with server %d is established\n", server_fd);
 
-    struct poll_fds pfds = {.count = 0};
-    fds_add(&pfds, server_fd, POLLIN);
+    hashtable_t *connections_by_fd = hashtable_create(sizeof(connection_t) * 10, BACKLOG);
+    hashtable_t *connections_by_id = hashtable_create(sizeof(connection_t) * 10, BACKLOG);
+    vector_t *poll_fds = vector_create(sizeof(struct pollfd), BACKLOG);
+
+    struct pollfd server_pfd = {.fd = server_fd};
+    vector_push(poll_fds, &server_pfd);
 
     while (1) {
-        int ready = poll(pfds.fds, pfds.count, -1);
+        int ready = poll(poll_fds->data, poll_fds->size, -1);
         if (ready == -1) {
             perror("poll");
             return EXIT_FAILURE;
         }
 
         // Reaing data flow from server socket
-        if (pfds.fds[0].revents & POLLIN) {
-            char buffer[1024];
+        if (server_pfd.revents & POLLIN) {
+            packet_header_t header;
+            protocol_read_header(server_pfd.fd, &header);
 
-            ssize_t n = read(pfds.fds[0].fd, buffer, sizeof(buffer));
-            if (n <= 0) {
-                perror("Reading from server socket");
+            if (header.type == PACKET_OPEN) {
+                int local_fd = socket(PF_INET, SOCK_STREAM, IPPROTO_TCP);
+                if (local_fd == -1) {
+                    perror("Socket creation with local service is failed");
+                    continue;
+                }
 
-                close(pfds.fds[0].fd);
-                printf("Closed server socket connection: %d\n", pfds.fds[0].fd);
+                struct sockaddr_in local_address = {.sin_family = AF_INET, .sin_port = htons(atoi(argv[1]))};
+                if (inet_pton(AF_INET, SERVER_ADDRESS, &local_address.sin_addr) <= 0) {
+                    perror("Invalid server address / server address not supported");
+                    close(local_fd);
+                    continue;
+                }
 
-                return EXIT_SUCCESS;
-            }
+                if (connect(local_fd, (struct sockaddr *)&local_address, sizeof(local_address)) == -1) {
+                    perror("Connection attempt with local service is failed");
+                    close(local_fd);
+                    continue;
+                }
 
-            int local_fd = socket(PF_INET, SOCK_STREAM, IPPROTO_TCP);
-            if (local_fd == -1) {
-                perror("Socket creation with local service is failed");
-                return EXIT_FAILURE;
-            }
+                struct pollfd *local_pfd = malloc(sizeof(struct pollfd));
+                local_pfd->fd = local_fd;
+                local_pfd->events = POLLIN;
 
-            struct sockaddr_in local_address = {.sin_family = AF_INET, .sin_port = htons(atoi(argv[1]))};
-            if (inet_pton(AF_INET, SERVER_ADDRESS, &local_address.sin_addr) <= 0) {
-                perror("Invalid server address / server address not supported");
-                return EXIT_FAILURE;
-            }
+                vector_push(poll_fds, local_pfd);
 
-            if (connect(local_fd, (struct sockaddr *)&local_address, sizeof(local_address)) == -1) {
-                perror("Connection attempt with local service is failed");
-                return EXIT_FAILURE;
-            }
+                connection_t *conn = connection_create(header.connection_id, local_fd);
 
-            fds_add(&pfds, local_fd, POLLIN);
-            write(pfds.fds[1].fd, buffer, n);
+                hashtable_put(connections_by_id, &header.connection_id, sizeof(uint32_t), conn, sizeof(connection_t));
+                hashtable_put(connections_by_fd, &local_fd, sizeof(int), conn, sizeof(connection_t));
 
-            continue;
-        }
-
-        if (pfds.fds[1].revents & POLLIN) {
-            char buffer[1024];
-
-            ssize_t n = read(pfds.fds[1].fd, buffer, sizeof(buffer));
-            if (n <= 0) {
-                perror("read");
-
-                close(pfds.fds[1].fd);
-                fds_del(&pfds, pfds.fds[1].fd);
-
-                printf("Closed connection with service: %d\n", pfds.fds[1].fd);
+                printf("Connection %d is established\n", conn->id);
 
                 continue;
             }
 
-            write(pfds.fds[0].fd, buffer, n);
-            continue;
+            if (header.type == PACKET_DATA) {
+                connection_t *conn;
+                hashtable_get(connections_by_id, &header.connection_id, sizeof(uint32_t), &conn);
+
+                protocol_read_payload(server_pfd.fd, conn->write_buffer, header.length);
+                conn->write_buffer_length += header.length;
+
+                write(conn->fd, conn->write_buffer, conn->write_buffer_length);
+                conn->write_buffer_length = 0;
+
+                continue;
+            }
+
+            if (header.type == PACKET_CLOSE) {
+                connection_t *conn;
+                hashtable_get(connections_by_id, &header.connection_id, sizeof(uint32_t), &conn);
+
+                size_t pollfd_index;
+                vector_find(poll_fds, &conn->fd, pollfd_cmp, &pollfd_index);
+
+                struct pollfd *pfd;
+                vector_get(poll_fds, pollfd_index, &pfd);
+                vector_erase(poll_fds, pollfd_index);
+
+                close(conn->fd);
+
+                free(conn);
+                free(pfd);
+
+                continue;
+            }
+        }
+
+        for (size_t i = 1; i < poll_fds->size; i++) {
+            struct pollfd *local_pfd;
+            vector_get(poll_fds, i, &local_pfd);
+
+            if (local_pfd->revents & POLLIN) {
+                connection_t *conn;
+                hashtable_get(connections_by_fd, &local_pfd->fd, sizeof(int), &conn);
+
+                ssize_t n = read(local_pfd->fd, conn->read_buffer, sizeof(conn->read_buffer));
+                if (n == 0) {
+                    close(local_pfd->fd);
+
+                    vector_erase(poll_fds, i);
+                    hashtable_remove(connections_by_fd, &local_pfd->fd, sizeof(int));
+                    hashtable_remove(connections_by_id, &conn->id, sizeof(uint32_t));
+
+                    protocol_send_close(server_fd, conn->id);
+
+                    printf("Closed local connection: %d\n", conn->id);
+
+                    free(conn);
+                    free(local_pfd);
+
+                    continue;
+                }
+
+                protocol_send_data(server_fd, conn->id, conn->read_buffer, conn->read_buffer_length);
+                conn->read_buffer_length = 0;
+            }
         }
     }
 

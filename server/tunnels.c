@@ -20,6 +20,13 @@ typedef struct {
     uint32_t next_connection_id;
 } server_t;
 
+bool pollfd_cmp(const void *a, const void *b) {
+    const struct pollfd *pa = a;
+    const struct pollfd *pb = b;
+
+    return pa->fd == pb->fd;
+}
+
 int main(void) {
     int socket_fd = socket(PF_INET, SOCK_STREAM, IPPROTO_TCP);
     if (socket_fd == -1) {
@@ -44,9 +51,7 @@ int main(void) {
 
     hashtable_t *connections_by_fd = hashtable_create(sizeof(connection_t) * 10, BACKLOG);
     hashtable_t *connections_by_id = hashtable_create(sizeof(connection_t) * 10, BACKLOG);
-
     vector_t *poll_fds = vector_create(sizeof(struct pollfd), BACKLOG);
-
     server_t server = {.next_connection_id = 0};
 
     struct pollfd socket_pfd = {.fd = socket_fd, .events = POLLIN};
@@ -111,6 +116,23 @@ int main(void) {
                 write(conn->fd, conn->write_buffer, conn->write_buffer_length);
                 conn->write_buffer_length = 0;
             }
+
+            if (header.type == PACKET_CLOSE) {
+                hashtable_remove(connections_by_id, &conn->id, sizeof(uint32_t));
+                hashtable_remove(connections_by_fd, &conn->fd, sizeof(int));
+
+                size_t pollfd_index;
+                vector_find(poll_fds, &conn->fd, pollfd_cmp, &pollfd_index);
+
+                struct pollfd *pfd;
+                vector_get(poll_fds, pollfd_index, &pfd);
+                vector_erase(poll_fds, pollfd_index);
+
+                close(conn->fd);
+
+                free(conn);
+                free(pfd);
+            }
         }
 
         // Reading data from user fds
@@ -122,13 +144,13 @@ int main(void) {
                 connection_t *conn;
                 hashtable_get(connections_by_fd, &user_pfd->fd, sizeof(user_pfd->fd), conn);
 
-                ssize_t n = read(user_pfd->fd, conn->read_buffer, conn->read_buffer_length);
+                ssize_t n = read(user_pfd->fd, conn->read_buffer, sizeof(conn->read_buffer));
                 if (n == 0) {
                     close(user_pfd->fd);
 
                     vector_erase(poll_fds, i);
-                    hashtable_remove(connections_by_fd, &user_pfd->fd, sizeof(user_pfd->fd));
-                    hashtable_remove(connections_by_id, &conn->id, sizeof(conn->id));
+                    hashtable_remove(connections_by_fd, &user_pfd->fd, sizeof(int));
+                    hashtable_remove(connections_by_id, &conn->id, sizeof(uint32_t));
 
                     protocol_send_close(client_fd, conn->id);
 
