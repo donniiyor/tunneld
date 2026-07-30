@@ -22,9 +22,9 @@ typedef struct {
 
 bool pollfd_cmp(const void *a, const void *b) {
     const struct pollfd *pa = a;
-    const struct pollfd *pb = b;
+    const int *fd = b;
 
-    return pa->fd == pb->fd;
+    return pa->fd == *fd;
 }
 
 int main(void) {
@@ -76,25 +76,24 @@ int main(void) {
         }
 
         // Check for user connections on socket_fd
+        struct pollfd socket_pfd;
+        vector_get(poll_fds, 0, &socket_pfd);
         if (socket_pfd.revents & POLLIN) {
             int user_fd = accept(socket_pfd.fd, NULL, NULL);
-            if (client_fd == -1) {
+            if (user_fd == -1) {
                 perror("Failed on user socket accept");
                 continue;
             }
 
             printf("Accepted user socket: %d\n", user_fd);
 
-            struct pollfd *user_pfd = malloc(sizeof(struct pollfd));
-            user_pfd->fd = user_fd;
-            user_pfd->events = POLLIN;
-
-            vector_push(poll_fds, user_pfd);
+            struct pollfd user_pfd = {.fd = user_fd, .events = POLLIN};
+            vector_push(poll_fds, &user_pfd);
 
             connection_t *conn = connection_create(server.next_connection_id++, user_fd);
 
-            hashtable_put(connections_by_fd, &user_fd, sizeof(user_fd), conn, sizeof(connection_t));
-            hashtable_put(connections_by_id, &conn->id, sizeof(conn->id), conn, sizeof(connection_t));
+            hashtable_put(connections_by_fd, &conn->fd, sizeof(int), &conn, sizeof(connection_t));
+            hashtable_put(connections_by_id, &conn->id, sizeof(uint32_t), &conn, sizeof(connection_t));
 
             protocol_send_open(client_fd, conn->id);
 
@@ -104,65 +103,71 @@ int main(void) {
         }
 
         // Reading data flow from client socket
+        struct pollfd client_pfd;
+        vector_get(poll_fds, 1, &client_pfd);
         if (client_pfd.revents & POLLIN) {
             packet_header_t header;
             protocol_read_header(client_pfd.fd, &header);
 
-            connection_t *conn;
-            hashtable_get(connections_by_id, &header.connection_id, sizeof(uint32_t), &conn);
+            connection_t *conn = NULL;
+            if (!hashtable_get(connections_by_id, &header.connection_id, sizeof(uint32_t), &conn)) continue;
 
             if (header.type == PACKET_DATA) {
                 protocol_read_payload(client_pfd.fd, conn->write_buffer, header.length);
+                conn->write_buffer_length = header.length;
                 write(conn->fd, conn->write_buffer, conn->write_buffer_length);
                 conn->write_buffer_length = 0;
             }
 
             if (header.type == PACKET_CLOSE) {
-                hashtable_remove(connections_by_id, &conn->id, sizeof(uint32_t));
                 hashtable_remove(connections_by_fd, &conn->fd, sizeof(int));
+                hashtable_remove(connections_by_id, &conn->id, sizeof(uint32_t));
 
                 size_t pollfd_index;
-                vector_find(poll_fds, &conn->fd, pollfd_cmp, &pollfd_index);
-
-                struct pollfd *pfd;
-                vector_get(poll_fds, pollfd_index, &pfd);
-                vector_erase(poll_fds, pollfd_index);
+                if (vector_find(poll_fds, &conn->fd, pollfd_cmp, &pollfd_index)) {
+                    vector_erase(poll_fds, pollfd_index);
+                }
 
                 close(conn->fd);
-
                 free(conn);
-                free(pfd);
+
+                continue;
             }
         }
 
         // Reading data from user fds
         for (size_t i = 2; i < poll_fds->size; i++) {
-            struct pollfd *user_pfd;
+            struct pollfd user_pfd;
             vector_get(poll_fds, i, &user_pfd);
 
-            if (user_pfd->revents & POLLIN) {
-                connection_t *conn;
-                hashtable_get(connections_by_fd, &user_pfd->fd, sizeof(user_pfd->fd), conn);
+            if (user_pfd.revents & POLLIN) {
+                connection_t *conn = NULL;
+                if (!hashtable_get(connections_by_fd, &user_pfd.fd, sizeof(user_pfd.fd), &conn)) continue;
 
-                ssize_t n = read(user_pfd->fd, conn->read_buffer, sizeof(conn->read_buffer));
+                ssize_t n = read(user_pfd.fd, conn->read_buffer, sizeof(conn->read_buffer));
+                if (n == -1) {
+                    perror("read user socket");
+                    continue;
+                }
+
                 if (n == 0) {
-                    close(user_pfd->fd);
+                    close(user_pfd.fd);
 
-                    vector_erase(poll_fds, i);
-                    hashtable_remove(connections_by_fd, &user_pfd->fd, sizeof(int));
+                    vector_erase(poll_fds, i--);
+                    hashtable_remove(connections_by_fd, &conn->fd, sizeof(int));
                     hashtable_remove(connections_by_id, &conn->id, sizeof(uint32_t));
 
                     protocol_send_close(client_fd, conn->id);
 
-                    printf("Closed user socket connection: %d\n", user_pfd->fd);
+                    printf("Closed user socket connection: %d\n", user_pfd.fd);
 
                     free(conn);
-                    free(user_pfd);
 
                     continue;
                 }
 
                 // Write data flow to client socket
+                conn->read_buffer_length = (size_t)n;
                 protocol_send_data(client_fd, conn->id, conn->read_buffer, conn->read_buffer_length);
                 conn->read_buffer_length = 0;
             }

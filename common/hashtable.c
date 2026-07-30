@@ -31,7 +31,17 @@ void hashtable_destroy(hashtable_t *ht) {
     assert(ht != NULL);
 
     for (size_t i = 0; i < ht->buckets_count; i++) {
-        vector_destroy(&ht->buckets[i]);
+        vector_t *bucket = &ht->buckets[i];
+
+        for (size_t j = 0; j < bucket->size; j++) {
+            struct pair p;
+            vector_get(bucket, j, &p);
+
+            free(p.key);
+            free(p.value);
+        }
+
+        vector_destroy(bucket);
     }
 
     free(ht->buckets);
@@ -58,33 +68,53 @@ bool hashtable_put(hashtable_t *ht, const void *key, const size_t key_size, cons
     size_t index = hash(key, key_size) % ht->buckets_count;
     vector_t *bucket = &ht->buckets[index];
 
-    int item_index = -1;
-
     for (size_t i = 0; i < bucket->size; i++) {
         struct pair p;
-        vector_get(bucket, i, (void *)&p);
+        vector_get(bucket, i, &p);
 
-        if (strcmp(p.key, key) == 0) {
-            item_index = i;
-            break;
+        if (p.key_size == key_size && memcmp(p.key, key, key_size) == 0) {
+            void *value_copy = malloc(value_size);
+            if (value_copy == NULL) return false;
+
+            memcpy(value_copy, value, value_size);
+            free(p.value);
+            p.value = value_copy;
+            p.value_size = value_size;
+
+            return vector_set(bucket, i, &p);
         }
     }
 
-    struct pair p = {.key = (char *)key, .value = (void *)value, .value_size = value_size};
+    void *key_copy = malloc(key_size);
+    if (key_copy == NULL) return false;
 
-    if (item_index == -1) {
-        vector_push(bucket, &p);
-        ht->size++;
-    } else vector_set(bucket, item_index, &p);
+    void *value_copy = malloc(value_size);
+    if (value_copy == NULL) {
+        free(key_copy);
+        return false;
+    }
+
+    memcpy(key_copy, key, key_size);
+    memcpy(value_copy, value, value_size);
+
+    struct pair p = {.key = key_copy, .key_size = key_size, .value = value_copy, .value_size = value_size};
+
+    if (!vector_push(bucket, &p)) {
+        free(key_copy);
+        free(value_copy);
+        return false;
+    }
+
+    ht->size++;
 
     return true;
 }
 
 static bool hashtable_pair_cmp(const void *elem, const void *value) {
     const struct pair *pair = elem;
-    const void *key = value;
+    const struct pair *needle = value;
 
-    return strcmp(pair->key, key) == 0;
+    return pair->key_size == needle->key_size && memcmp(pair->key, needle->key, pair->key_size) == 0;
 }
 
 bool hashtable_get(const hashtable_t *ht, const void *key, const size_t key_size, void *value) {
@@ -92,9 +122,10 @@ bool hashtable_get(const hashtable_t *ht, const void *key, const size_t key_size
 
     size_t bucket_index = hash(key, key_size) % ht->buckets_count;
     vector_t *bucket = &ht->buckets[bucket_index];
+    struct pair needle = {.key = (void *)key, .key_size = key_size};
 
     size_t elem_index;
-    if (!vector_find(bucket, key, hashtable_pair_cmp, &elem_index)) return false;
+    if (!vector_find(bucket, &needle, hashtable_pair_cmp, &elem_index)) return false;
 
     struct pair elem;
     if (!vector_get(bucket, elem_index, &elem)) return false;
@@ -109,9 +140,16 @@ bool hashtable_remove(hashtable_t *ht, const void *key, const size_t key_size) {
 
     size_t bucket_index = hash(key, key_size) % ht->buckets_count;
     vector_t *bucket = &ht->buckets[bucket_index];
+    struct pair needle = {.key = (void *)key, .key_size = key_size};
 
     size_t elem_index;
-    if (!vector_find(bucket, key, hashtable_pair_cmp, &elem_index)) return false;
+    if (!vector_find(bucket, &needle, hashtable_pair_cmp, &elem_index)) return false;
+
+    struct pair elem;
+    if (!vector_get(bucket, elem_index, &elem)) return false;
+
+    free(elem.key);
+    free(elem.value);
 
     if (!vector_erase(bucket, elem_index)) return false;
 

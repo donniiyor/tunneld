@@ -18,8 +18,6 @@ typedef struct {
     size_t buckets_count;
 } hashtable_t;
 
-static bool hashtable_pair_cmp(const void *elem, const void *value);
-
 hashtable_t *hashtable_create(size_t bucket_capacity, size_t buckets_count);
 void hashtable_destroy(hashtable_t *ht);
 
