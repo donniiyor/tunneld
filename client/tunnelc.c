@@ -31,22 +31,22 @@ int main(int argc, char *argv[]) {
     // Establish connection with server
     int server_fd = socket(PF_INET, SOCK_STREAM, IPPROTO_TCP);
     if (server_fd == -1) {
-        perror("Socket creation failed");
+        perror("socket creation failed");
         return EXIT_FAILURE;
     }
 
     struct sockaddr_in server_address = {.sin_family = AF_INET, .sin_port = htons(SERVER_PORT)};
     if (inet_pton(AF_INET, SERVER_ADDRESS, &server_address.sin_addr) <= 0) {
-        perror("Invalid server address / server address not supported");
+        perror("invalid server address / server address not supported");
         return EXIT_FAILURE;
     }
 
     if (connect(server_fd, (struct sockaddr *)&server_address, sizeof(server_address)) == -1) {
-        perror("Connect failed");
+        perror("connect failed");
         return EXIT_FAILURE;
     }
 
-    printf("Connection with server %d is established\n", server_fd);
+    printf("connection with server %d is established\n", server_fd);
 
     hashtable_t *connections_by_fd = hashtable_create(sizeof(connection_t) * 10, BACKLOG);
     hashtable_t *connections_by_id = hashtable_create(sizeof(connection_t) * 10, BACKLOG);
@@ -72,19 +72,19 @@ int main(int argc, char *argv[]) {
             if (header.type == PACKET_OPEN) {
                 int local_fd = socket(PF_INET, SOCK_STREAM, IPPROTO_TCP);
                 if (local_fd == -1) {
-                    perror("Socket creation with local service is failed");
+                    perror("socket creation with local service is failed");
                     continue;
                 }
 
                 struct sockaddr_in local_address = {.sin_family = AF_INET, .sin_port = htons(atoi(argv[1]))};
                 if (inet_pton(AF_INET, SERVER_ADDRESS, &local_address.sin_addr) <= 0) {
-                    perror("Invalid server address / server address not supported");
+                    perror("invalid server address / server address not supported");
                     close(local_fd);
                     continue;
                 }
 
                 if (connect(local_fd, (struct sockaddr *)&local_address, sizeof(local_address)) == -1) {
-                    perror("Connection attempt with local service is failed");
+                    perror("connection attempt with local service is failed");
                     close(local_fd);
                     continue;
                 }
@@ -94,10 +94,11 @@ int main(int argc, char *argv[]) {
 
                 connection_t *conn = connection_create(header.connection_id, local_fd);
 
-                hashtable_put(connections_by_id, &header.connection_id, sizeof(uint32_t), &conn, sizeof(connection_t));
-                hashtable_put(connections_by_fd, &local_fd, sizeof(int), &conn, sizeof(connection_t));
+                hashtable_put(connections_by_id, &header.connection_id, sizeof(uint32_t), &conn,
+                              sizeof(connection_t *));
+                hashtable_put(connections_by_fd, &local_fd, sizeof(int), &conn, sizeof(connection_t *));
 
-                printf("Connection %d is established\n", conn->id);
+                printf("connection %d is established\n", conn->id);
 
                 continue;
             }

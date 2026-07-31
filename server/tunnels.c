@@ -30,24 +30,24 @@ bool pollfd_cmp(const void *a, const void *b) {
 int main(void) {
     int socket_fd = socket(PF_INET, SOCK_STREAM, IPPROTO_TCP);
     if (socket_fd == -1) {
-        perror("Socket creation failed");
+        perror("socket creation failed");
         return EXIT_FAILURE;
     }
 
     struct sockaddr_in socket_addres = {.sin_family = PF_INET, .sin_addr.s_addr = INADDR_ANY, .sin_port = htons(PORT)};
     if (bind(socket_fd, (struct sockaddr *)&socket_addres, sizeof(socket_addres)) == -1) {
-        perror("Socket address bind failed");
+        perror("socket address bind failed");
         close(socket_fd);
         return EXIT_FAILURE;
     }
 
     if (listen(socket_fd, BACKLOG) == -1) {
-        perror("Socket listen failed");
+        perror("socket listen failed");
         close(socket_fd);
         return EXIT_FAILURE;
     }
 
-    printf("Socket is wating for client connection on port %d...\n", PORT);
+    printf("socket is wating for client connection on port %d...\n", PORT);
 
     hashtable_t *connections_by_fd = hashtable_create(sizeof(connection_t) * 10, BACKLOG);
     hashtable_t *connections_by_id = hashtable_create(sizeof(connection_t) * 10, BACKLOG);
@@ -59,11 +59,11 @@ int main(void) {
 
     int client_fd = accept(socket_fd, NULL, NULL);
     if (client_fd == -1) {
-        perror("Failed on client socket accept");
+        perror("failed on client socket accept");
         return EXIT_FAILURE;
     }
 
-    printf("Client is connected: %d\n", client_fd);
+    printf("client is connected: %d\n", client_fd);
 
     struct pollfd client_pfd = {.fd = client_fd, .events = POLLIN};
     vector_push(poll_fds, &client_pfd);
@@ -81,23 +81,23 @@ int main(void) {
         if (socket_pfd.revents & POLLIN) {
             int user_fd = accept(socket_pfd.fd, NULL, NULL);
             if (user_fd == -1) {
-                perror("Failed on user socket accept");
+                perror("failed on user socket accept");
                 continue;
             }
 
-            printf("Accepted user socket: %d\n", user_fd);
+            printf("accepted user socket: %d\n", user_fd);
 
             struct pollfd user_pfd = {.fd = user_fd, .events = POLLIN};
             vector_push(poll_fds, &user_pfd);
 
             connection_t *conn = connection_create(server.next_connection_id++, user_fd);
 
-            hashtable_put(connections_by_fd, &conn->fd, sizeof(int), &conn, sizeof(connection_t));
-            hashtable_put(connections_by_id, &conn->id, sizeof(uint32_t), &conn, sizeof(connection_t));
+            hashtable_put(connections_by_fd, &conn->fd, sizeof(int), &conn, sizeof(connection_t *));
+            hashtable_put(connections_by_id, &conn->id, sizeof(uint32_t), &conn, sizeof(connection_t *));
 
             protocol_send_open(client_fd, conn->id);
 
-            printf("Connection created: %d\n", conn->id);
+            printf("connection created: %d\n", conn->id);
 
             continue;
         }
@@ -129,6 +129,8 @@ int main(void) {
                 }
 
                 close(conn->fd);
+                printf("closed connection %d\n", conn->fd);
+
                 free(conn);
 
                 continue;
@@ -159,7 +161,7 @@ int main(void) {
 
                     protocol_send_close(client_fd, conn->id);
 
-                    printf("Closed user socket connection: %d\n", user_pfd.fd);
+                    printf("closed user socket connection: %d\n", user_pfd.fd);
 
                     free(conn);
 
