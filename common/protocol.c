@@ -12,7 +12,7 @@ static int write_all(int fd, const void *buf, size_t length) {
         ssize_t n = write(fd, p, length);
         if (n == -1) {
             if (errno == EINTR) continue;
-            perror("Writing packet");
+            perror("writing packet");
             return -1;
         }
 
@@ -30,7 +30,7 @@ static int read_all(int fd, void *buf, size_t length) {
         ssize_t n = read(fd, p, length);
         if (n == -1) {
             if (errno == EINTR) continue;
-            perror("Reading packet");
+            perror("reading packet");
             return -1;
         }
 
