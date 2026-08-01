@@ -18,13 +18,6 @@
 #define SERVER_PORT 8080
 #define SERVER_ADDRESS "127.0.0.1"
 
-bool pollfd_cmp(const void *a, const void *b) {
-    const struct pollfd *pa = a;
-    const int *fd = b;
-
-    return pa->fd == *fd;
-}
-
 int main(int argc, char *argv[]) {
     assert(argc == 2);
 

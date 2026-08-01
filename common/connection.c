@@ -2,6 +2,14 @@
 
 #include <stdio.h>
 #include <stdlib.h>
+#include <unistd.h>
+
+static bool pollfd_cmp(const void *a, const void *b) {
+    const struct pollfd *pa = a;
+    const int *fd = b;
+
+    return pa->fd == *fd;
+}
 
 connection_t *connection_create(uint32_t id, int fd) {
     connection_t *conn = malloc(sizeof(connection_t));
@@ -18,4 +26,18 @@ connection_t *connection_create(uint32_t id, int fd) {
     conn->state = OPEN;
 
     return conn;
+}
+
+void connection_unregister(event_context_t *ctx, connection_t *conn) {
+    size_t index;
+    if (vector_find(ctx->poll_fds, &conn->fd, pollfd_cmp, &index)) vector_erase(ctx->poll_fds, index);
+
+    hashtable_remove(ctx->connections_by_fd, &conn->fd, sizeof(conn->fd));
+    hashtable_remove(ctx->connections_by_id, &conn->id, sizeof(conn->id));
+
+    close(conn->fd);
+}
+
+void connection_destroy(connection_t *conn) {
+    free(conn);
 }
