@@ -1,10 +1,8 @@
-#include "client_event.h"
 #include "connection.h"
 #include "hashtable.h"
+#include "server_event.h"
 #include "vector.h"
 
-#include <arpa/inet.h>
-#include <assert.h>
 #include <netinet/in.h>
 #include <poll.h>
 #include <stdint.h>
@@ -14,46 +12,62 @@
 #include <sys/socket.h>
 #include <unistd.h>
 
+#define PORT 8080
 #define BACKLOG 8
-#define SERVER_PORT 8080
-#define SERVER_ADDRESS "127.0.0.1"
+#define KEY_BUFFER_SIZE 12
 
-int main(int argc, char *argv[]) {
-    assert(argc == 2);
+bool pollfd_cmp(const void *a, const void *b) {
+    const struct pollfd *pa = a;
+    const int *fd = b;
 
-    // Establish connection with server
+    return pa->fd == *fd;
+}
+
+int main(void) {
     int server_fd = socket(PF_INET, SOCK_STREAM, IPPROTO_TCP);
     if (server_fd == -1) {
         perror("socket creation failed");
         return EXIT_FAILURE;
     }
 
-    struct sockaddr_in server_address = {.sin_family = AF_INET, .sin_port = htons(SERVER_PORT)};
-    if (inet_pton(AF_INET, SERVER_ADDRESS, &server_address.sin_addr) <= 0) {
-        perror("invalid server address / server address not supported");
+    struct sockaddr_in socket_addres = {.sin_family = PF_INET, .sin_addr.s_addr = INADDR_ANY, .sin_port = htons(PORT)};
+    if (bind(server_fd, (struct sockaddr *)&socket_addres, sizeof(socket_addres)) == -1) {
+        perror("socket address bind failed");
+        close(server_fd);
         return EXIT_FAILURE;
     }
 
-    if (connect(server_fd, (struct sockaddr *)&server_address, sizeof(server_address)) == -1) {
-        perror("connect failed");
+    if (listen(server_fd, BACKLOG) == -1) {
+        perror("socket listen failed");
+        close(server_fd);
         return EXIT_FAILURE;
     }
 
-    printf("connection with server %d is established\n", server_fd);
+    printf("socket is wating for client connection on port %d...\n", PORT);
 
     hashtable_t *connections_by_fd = hashtable_create(sizeof(connection_t) * 10, BACKLOG);
     hashtable_t *connections_by_id = hashtable_create(sizeof(connection_t) * 10, BACKLOG);
     vector_t *poll_fds = vector_create(sizeof(struct pollfd), BACKLOG);
 
-    struct pollfd server_pfd = {.fd = server_fd, .events = POLLIN};
-    vector_push(poll_fds, &server_pfd);
+    struct pollfd socket_pfd = {.fd = server_fd, .events = POLLIN};
+    vector_push(poll_fds, &socket_pfd);
+
+    int client_fd = accept(server_fd, NULL, NULL);
+    if (client_fd == -1) {
+        perror("failed on client socket accept");
+        return EXIT_FAILURE;
+    }
+
+    printf("client is connected: %d\n", client_fd);
+
+    struct pollfd client_pfd = {.fd = client_fd, .events = POLLIN};
+    vector_push(poll_fds, &client_pfd);
 
     event_context_t ctx = {.server_fd = server_fd,
                            .poll_fds = poll_fds,
                            .connections_by_fd = connections_by_fd,
                            .connections_by_id = connections_by_id,
-                           .localhost = SERVER_ADDRESS,
-                           .localport = SERVER_PORT};
+                           .localport = PORT};
 
     while (1) {
         int ready = poll(poll_fds->data, poll_fds->size, -1);
@@ -63,6 +77,7 @@ int main(int argc, char *argv[]) {
         }
 
         handle_server_events(&ctx);
+        handle_client_events(&ctx);
         handle_local_events(&ctx);
     }
 

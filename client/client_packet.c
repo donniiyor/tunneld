@@ -1,4 +1,4 @@
-#include "packet.h"
+#include "client_packet.h"
 #include "connection.h"
 
 #include <stdio.h>
@@ -54,7 +54,7 @@ static bool handle_close(event_context_t *ctx, const packet_header_t *header) {
     connection_t *conn = NULL;
     if (!hashtable_get(ctx->connections_by_id, &header->connection_id, sizeof(uint32_t), &conn)) return true;
 
-    connection_unregister(ctx, conn);
+    connection_unregister(conn, ctx->poll_fds, ctx->connections_by_fd, ctx->connections_by_id);
     connection_destroy(conn);
 
     return true;

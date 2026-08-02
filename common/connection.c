@@ -1,5 +1,7 @@
 #include "connection.h"
+#include "hashtable.h"
 
+#include <poll.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>
@@ -28,12 +30,12 @@ connection_t *connection_create(uint32_t id, int fd) {
     return conn;
 }
 
-void connection_unregister(event_context_t *ctx, connection_t *conn) {
+void connection_unregister(connection_t *conn, vector_t *poll_fds, hashtable_t *connections_by_fd, hashtable_t *connections_by_id) {
     size_t index;
-    if (vector_find(ctx->poll_fds, &conn->fd, pollfd_cmp, &index)) vector_erase(ctx->poll_fds, index);
+    if (vector_find(poll_fds, &conn->fd, pollfd_cmp, &index)) vector_erase(poll_fds, index);
 
-    hashtable_remove(ctx->connections_by_fd, &conn->fd, sizeof(conn->fd));
-    hashtable_remove(ctx->connections_by_id, &conn->id, sizeof(conn->id));
+    hashtable_remove(connections_by_fd, &conn->fd, sizeof(conn->fd));
+    hashtable_remove(connections_by_id, &conn->id, sizeof(conn->id));
 
     close(conn->fd);
 }

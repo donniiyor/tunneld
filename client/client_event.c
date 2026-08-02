@@ -1,6 +1,6 @@
-#include "event.h"
+#include "client_event.h"
+#include "client_packet.h"
 #include "connection.h"
-#include "packet.h"
 #include "protocol.h"
 
 #include <arpa/inet.h>
@@ -38,7 +38,7 @@ bool handle_local_events(event_context_t *ctx) {
             }
 
             if (n == 0) {
-                connection_unregister(ctx, conn);
+                connection_unregister(conn, ctx->poll_fds, ctx->connections_by_fd, ctx->connections_by_id);
 
                 protocol_send_close(ctx->server_fd, conn->id);
 

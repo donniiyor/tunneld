@@ -1,7 +1,7 @@
 #ifndef CONNECTION_MAP
 #define CONNECTION_MAP
 
-#include "event.h"
+#include "hashtable.h"
 #include <stddef.h>
 #include <stdint.h>
 
@@ -28,7 +28,7 @@ typedef struct {
 
 connection_t *connection_create(uint32_t id, int fd);
 
-void connection_unregister(event_context_t *ctx, connection_t *conn);
+void connection_unregister(connection_t *conn, vector_t *poll_fds, hashtable_t *connections_by_fd, hashtable_t *connections_by_id);
 void connection_destroy(connection_t *conn);
 
 #endif
