@@ -1,6 +1,7 @@
 #include "client_event.h"
 #include "client_packet.h"
 #include "connection.h"
+#include "log.h"
 #include "protocol.h"
 
 #include <arpa/inet.h>
@@ -17,7 +18,7 @@ bool handle_server_events(event_context_t *ctx) {
     if (!(server_pfd.revents & POLLIN)) return true;
 
     packet_header_t header;
-    if (!protocol_read_header(server_pfd.fd, &header)) return false;
+    if (protocol_read_header(server_pfd.fd, &header) == -1) return false;
 
     return handle_packet(ctx, &header);
 }
@@ -33,7 +34,7 @@ bool handle_local_events(event_context_t *ctx) {
 
             ssize_t n = read(local_pfd.fd, conn->read_buffer, sizeof(conn->read_buffer));
             if (n == -1) {
-                perror("read local connection");
+                log_error("read local connection");
                 continue;
             }
 
@@ -42,7 +43,7 @@ bool handle_local_events(event_context_t *ctx) {
 
                 protocol_send_close(ctx->server_fd, conn->id);
 
-                printf("closed local connection: %d\n", conn->id);
+                log_info("closed local connection: %d", conn->id);
 
                 connection_destroy(conn);
 

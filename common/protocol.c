@@ -1,8 +1,8 @@
 #include "protocol.h"
 
 #include <errno.h>
-#include <stdio.h>
 #include <stddef.h>
+#include <stdio.h>
 #include <unistd.h>
 
 static int write_all(int fd, const void *buf, size_t length) {

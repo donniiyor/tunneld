@@ -18,6 +18,13 @@ static bool handle_data(event_context_t *ctx, const packet_header_t *header) {
     struct pollfd client_pfd;
     vector_get(ctx->poll_fds, 1, &client_pfd);
 
+    if (header->length > sizeof(conn->write_buffer)) {
+        log_error("packet payload too large: %u", header->length);
+        return false;
+    }
+
+    if (protocol_read_payload(client_pfd.fd, conn->write_buffer, header->length) == -1) return false;
+
     conn->write_buffer_length = header->length;
     write(conn->fd, conn->write_buffer, conn->write_buffer_length);
     conn->write_buffer_length = 0;
@@ -33,6 +40,7 @@ static bool handle_close(event_context_t *ctx, const packet_header_t *header) {
     }
 
     connection_unregister(conn, ctx->poll_fds, ctx->connections_by_fd, ctx->connections_by_id);
+    log_info("closed connection %d", conn->id);
     connection_destroy(conn);
 
     return true;

@@ -53,7 +53,7 @@ bool handle_client_events(event_context_t *ctx) {
     if (!(client_pfd.revents & POLLIN)) return true;
 
     packet_header_t header;
-    if (!protocol_read_header(client_pfd.fd, &header)) return false;
+    if (protocol_read_header(client_pfd.fd, &header) == -1) return false;
 
     return handle_packet(ctx, &header);
 }

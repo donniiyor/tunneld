@@ -1,5 +1,6 @@
 #include "connection.h"
 #include "hashtable.h"
+#include "log.h"
 #include "server_event.h"
 #include "vector.h"
 
@@ -26,24 +27,24 @@ bool pollfd_cmp(const void *a, const void *b) {
 int main(void) {
     int server_fd = socket(PF_INET, SOCK_STREAM, IPPROTO_TCP);
     if (server_fd == -1) {
-        perror("socket creation failed");
+        log_error("socket creation failed");
         return EXIT_FAILURE;
     }
 
     struct sockaddr_in socket_addres = {.sin_family = PF_INET, .sin_addr.s_addr = INADDR_ANY, .sin_port = htons(PORT)};
     if (bind(server_fd, (struct sockaddr *)&socket_addres, sizeof(socket_addres)) == -1) {
-        perror("socket address bind failed");
+        log_error("socket address bind failed");
         close(server_fd);
         return EXIT_FAILURE;
     }
 
     if (listen(server_fd, BACKLOG) == -1) {
-        perror("socket listen failed");
+        log_error("socket listen failed");
         close(server_fd);
         return EXIT_FAILURE;
     }
 
-    printf("socket is wating for client connection on port %d...\n", PORT);
+    log_info("wating for client connection on port %d", PORT);
 
     hashtable_t *connections_by_fd = hashtable_create(sizeof(connection_t) * 10, BACKLOG);
     hashtable_t *connections_by_id = hashtable_create(sizeof(connection_t) * 10, BACKLOG);
@@ -54,11 +55,11 @@ int main(void) {
 
     int client_fd = accept(server_fd, NULL, NULL);
     if (client_fd == -1) {
-        perror("failed on client socket accept");
+        log_error("failed on client socket accept");
         return EXIT_FAILURE;
     }
 
-    printf("client is connected: %d\n", client_fd);
+    log_info("client is connected: %d", client_fd);
 
     struct pollfd client_pfd = {.fd = client_fd, .events = POLLIN};
     vector_push(poll_fds, &client_pfd);
@@ -72,7 +73,7 @@ int main(void) {
     while (1) {
         int ready = poll(poll_fds->data, poll_fds->size, -1);
         if (ready == -1) {
-            perror("poll");
+            log_error("poll");
             return EXIT_FAILURE;
         }
 

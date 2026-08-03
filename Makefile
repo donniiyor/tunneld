@@ -1,5 +1,7 @@
 CC := clang
 
+DEBUG ?= 1
+
 SERVER_TARGET := tunnels
 CLIENT_TARGET := tunnelc
 
@@ -10,9 +12,13 @@ SERVER_DIR := server
 CLIENT_DIR := client
 
 CFLAGS := -Wall -Wextra -Wpedantic -std=c11
-CFLAGS += -Icommon
-CFLAGS += -Iserver
-CFLAGS += -Iclient
+CPPFLAGS := -Icommon -Iserver -Iclient
+
+ifeq ($(DEBUG), 1)
+	CFLAGS += -g -O0
+else
+	CFLAGS += -O2 -DNDEBUG
+endif
 
 LDFLAGS :=
 
@@ -28,18 +34,18 @@ CLIENT_OBJS := $(patsubst %.c,$(BUILD_DIR)/client/%.o,$(CLIENT_SRCS))
 all: $(SERVER_TARGET) $(CLIENT_TARGET)
 
 $(SERVER_TARGET): $(SERVER_OBJS)
-	$(CC) $(SERVER_OBJS) -o $@ $(LDFLAGS)
+	$(CC) $^ -o $@ $(LDFLAGS)
 
 $(CLIENT_TARGET): $(CLIENT_OBJS)
-	$(CC) $(CLIENT_OBJS) -o $@ $(LDFLAGS)
+	$(CC) $^ -o $@ $(LDFLAGS)
 
 $(BUILD_DIR)/server/%.o: %.c
 	@mkdir -p $(dir $@)
-	$(CC) $(CFLAGS) -c $< -o $@
+	$(CC) $(CFLAGS) $(CPPFLAGS) -c $< -o $@
 
 $(BUILD_DIR)/client/%.o: %.c
 	@mkdir -p $(dir $@)
-	$(CC) $(CFLAGS) -c $< -o $@
+	$(CC) $(CFLAGS) $(CPPFLAGS) -c $< -o $@
 
 run-server: $(SERVER_TARGET)
 	./$(SERVER_TARGET)
