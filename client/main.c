@@ -26,22 +26,23 @@ int main(int argc, char *argv[]) {
     // Establish connection with server
     int server_fd = socket(PF_INET, SOCK_STREAM, IPPROTO_TCP);
     if (server_fd == -1) {
-        log_error("socket creation failed");
+        log_errno("failed to create tunnel server socket");
         return EXIT_FAILURE;
     }
 
     struct sockaddr_in server_address = {.sin_family = AF_INET, .sin_port = htons(SERVER_PORT)};
     if (inet_pton(AF_INET, SERVER_ADDRESS, &server_address.sin_addr) <= 0) {
-        log_error("invalid server address / server address not supported");
+        log_error("invalid tunnel server address: address=%s", SERVER_ADDRESS);
         return EXIT_FAILURE;
     }
 
     if (connect(server_fd, (struct sockaddr *)&server_address, sizeof(server_address)) == -1) {
-        log_error("failed to connect with server");
+        log_errno("failed to connect to tunnel server: fd=%d target=%s:%d", server_fd, SERVER_ADDRESS, SERVER_PORT);
         return EXIT_FAILURE;
     }
 
-    log_info("connection with server %d is established", server_fd);
+    log_info("connected to tunnel server: server_fd=%d target=%s:%d local_service=%s:%d", server_fd, SERVER_ADDRESS,
+             SERVER_PORT, SERVICE_ADDRESS, atoi(argv[1]));
 
     hashtable_t *connections_by_fd = hashtable_create(sizeof(connection_t) * 10, BACKLOG);
     hashtable_t *connections_by_id = hashtable_create(sizeof(connection_t) * 10, BACKLOG);
@@ -60,7 +61,7 @@ int main(int argc, char *argv[]) {
     while (1) {
         int ready = poll(poll_fds->data, poll_fds->size, -1);
         if (ready == -1) {
-            log_error("poll");
+            log_errno("poll failed: watched_fds=%zu", poll_fds->size);
             return EXIT_FAILURE;
         }
 

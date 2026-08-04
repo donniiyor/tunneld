@@ -1,5 +1,6 @@
 #include "connection.h"
 #include "hashtable.h"
+#include "log.h"
 
 #include <poll.h>
 #include <stdio.h>
@@ -16,7 +17,7 @@ static bool pollfd_cmp(const void *a, const void *b) {
 connection_t *connection_create(uint32_t id, int fd) {
     connection_t *conn = malloc(sizeof(connection_t));
     if (conn == NULL) {
-        perror("malloc");
+        log_errno("failed to allocate connection: id=%u fd=%d", id, fd);
         return NULL;
     }
 
