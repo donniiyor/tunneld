@@ -7,6 +7,7 @@ enum packet_type {
     PACKET_OPEN = 1,
     PACKET_DATA = 2,
     PACKET_CLOSE = 3,
+    PACKET_TUNNEL_ENDPOINT = 4,
 };
 
 typedef struct {
@@ -15,6 +16,13 @@ typedef struct {
     uint32_t length;
 } packet_header_t;
 
+typedef struct {
+    char host[16];
+    uint16_t port;
+} tunnel_endpoint_t;
+
+int protocol_send_tunnel_endpoint(int fd, const tunnel_endpoint_t *endpoint);
+int protocol_read_tunnel_endpoint(int fd, tunnel_endpoint_t *endpoint);
 int protocol_send_open(int fd, uint32_t connection_id);
 int protocol_send_data(int fd, uint32_t connection_id, const void *payload, uint32_t length);
 int protocol_send_close(int fd, uint32_t connection_id);

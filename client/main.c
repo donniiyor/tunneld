@@ -2,6 +2,7 @@
 #include "connection.h"
 #include "hashtable.h"
 #include "log.h"
+#include "protocol.h"
 #include "vector.h"
 
 #include <arpa/inet.h>
@@ -44,6 +45,15 @@ int main(int argc, char *argv[]) {
     log_info("connected to tunnel server: server_fd=%d target=%s:%d local_service=%s:%d", server_fd, SERVER_ADDRESS,
              SERVER_PORT, SERVICE_ADDRESS, atoi(argv[1]));
 
+    tunnel_endpoint_t endpoint;
+    if (protocol_read_tunnel_endpoint(server_fd, &endpoint) == -1) {
+        log_error("failed to receive allocated tunnel endpoint from server: server_fd=%d", server_fd);
+        close(server_fd);
+        return EXIT_FAILURE;
+    }
+
+    log_info("tunnel endpoint allocated: open http://%s:%u", endpoint.host, endpoint.port);
+
     hashtable_t *connections_by_fd = hashtable_create(sizeof(connection_t) * 10, BACKLOG);
     hashtable_t *connections_by_id = hashtable_create(sizeof(connection_t) * 10, BACKLOG);
     vector_t *poll_fds = vector_create(sizeof(struct pollfd), BACKLOG);
@@ -65,8 +75,10 @@ int main(int argc, char *argv[]) {
             return EXIT_FAILURE;
         }
 
-        handle_server_events(&ctx);
-        handle_local_events(&ctx);
+        if (!handle_server_events(&ctx) || !handle_local_events(&ctx)) {
+            log_error("event handling failed; shutting down client");
+            return EXIT_FAILURE;
+        }
     }
 
     return EXIT_SUCCESS;
